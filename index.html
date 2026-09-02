@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Patrimônio</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+<style>
+  :root{
+    --ink:#0F2422;
+    --paper:#EFE7D6;
+    --paper-dim:#E2D8C2;
+    --gold:#C79A3A;
+    --gold-dim:#a9822f;
+    --up:#5C8A5A;
+    --down:#B5573F;
+    --line:rgba(239,231,214,0.14);
+    --muted:rgba(239,231,214,0.58);
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--ink);
+    color:var(--paper);
+    font-family:'Inter','Helvetica Neue',Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .num{
+    font-family:'IBM Plex Mono',ui-monospace,monospace;
+    font-variant-numeric:tabular-nums;
+  }
+  h1,h2,.title-font{
+    font-family:'Fraunces','Georgia',serif;
+    font-weight:600;
+    letter-spacing:-0.01em;
+  }
+  .wrap{
+    max-width:960px;
+    margin:0 auto;
+    padding:28px 20px 60px;
+  }
+  header{
+    display:flex;
+    justify-content:space-between;
+    align-items:baseline;
+    margin-bottom:8px;
+    flex-wrap:wrap;
+    gap:6px;
+  }
+  header h1{font-size:22px;margin:0;color:var(--paper);}
+  header .updated{font-size:12px;color:var(--muted);}
+
+  .hero{
+    padding:22px 0 30px;
+    border-bottom:1px solid var(--line);
+    margin-bottom:22px;
+  }
+  .hero-label{font-size:13px;color:var(--muted);margin-bottom:6px;}
+  .hero-value{font-size:44px;line-height:1;color:var(--paper);}
+  .hero-delta{font-size:14px;margin-top:8px;}
+  .hero-delta.up{color:var(--up);}
+  .hero-delta.down{color:var(--down);}
+
+  .chart-card{
+    background:var(--paper);
+    border-radius:10px;
+    padding:20px 18px 12px;
+    margin-bottom:22px;
+  }
+  .chart-card h2{font-size:16px;color:var(--ink);margin:0 0 14px;}
+  .chart-holder{position:relative;height:280px;}
+
+  .legend{
+    display:flex;
+    flex-wrap:wrap;
+    gap:8px;
+    margin-top:14px;
+  }
+  .legend button{
+    display:flex;
+    align-items:center;
+    gap:6px;
+    font-size:12px;
+    padding:5px 10px;
+    border-radius:100px;
+    border:1px solid rgba(15,36,34,0.15);
+    background:transparent;
+    color:var(--ink);
+    cursor:pointer;
+    font-family:inherit;
+    opacity:1;
+    transition:opacity .15s;
+  }
+  .legend button.off{opacity:0.32;}
+  .legend .dot{width:8px;height:8px;border-radius:50%;flex:none;}
+
+  .cards{
+    display:grid;
+    grid-template-columns:repeat(auto-fill,minmax(150px,1fr));
+    gap:10px;
+    margin-bottom:24px;
+  }
+  .bank-card{
+    background:var(--paper-dim);
+    border-radius:8px;
+    padding:14px 14px;
+    border-left:3px solid var(--gold);
+  }
+  .bank-card .name{font-size:12px;color:var(--ink);opacity:0.65;margin-bottom:6px;}
+  .bank-card .value{font-size:19px;color:var(--ink);}
+  .bank-card .delta{font-size:11px;margin-top:5px;}
+  .bank-card .delta.up{color:var(--up);}
+  .bank-card .delta.down{color:var(--down);}
+
+  footer{font-size:11px;color:var(--muted);text-align:center;margin-top:20px;}
+  footer a{color:var(--muted);}
+
+  #status{
+    padding:60px 20px;
+    text-align:center;
+    color:var(--muted);
+    font-size:14px;
+  }
+  #status.error{color:var(--down);}
+  #app{display:none;}
+
+  @media (max-width:520px){
+    .hero-value{font-size:34px;}
+    .chart-holder{height:230px;}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Patrimônio</h1>
+    <span class="updated" id="updated"></span>
+  </header>
+
+  <div id="status">Carregando dados da planilha…<br><a id="testLink" href="#" target="_blank" style="color:var(--muted);font-size:12px">testar link direto dos dados</a></div>
+
+  <div id="app">
+    <div class="hero">
+      <div class="hero-label">Total consolidado</div>
+      <div class="hero-value num" id="heroTotal">—</div>
+      <div class="hero-delta" id="heroDelta"></div>
+    </div>
+
+    <div class="chart-card">
+      <h2>Evolução por conta</h2>
+      <div class="chart-holder"><canvas id="chart"></canvas></div>
+      <div class="legend" id="legend"></div>
+    </div>
+
+    <div class="cards" id="cards"></div>
+  </div>
+
+  <footer>Dados lidos diretamente da sua planilha Google Sheets · <a id="sheetLink" href="#" target="_blank">abrir planilha</a></footer>
+</div>
+
+<script>
+// ====== CONFIGURAÇÃO ======
+const SHEET_ID = "1LvvmHrmguIbut9HLfaDkt0fI2XvL9Sh1qSnQJM-cNzA";
+const SHEET_NAME = "dados";
+const CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(SHEET_NAME)}`;
+// ===========================
+
+document.getElementById('sheetLink').href = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/edit`;
+document.getElementById('testLink').href = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent("dados")}`;
+
+const PALETTE = ["#C79A3A","#5C8A5A","#B5573F","#4A7A9C","#8B6BB7","#C97D6B","#6B8E9C","#A88B3E"];
+
+function parseCSV(text){
+  const rows = [];
+  let row = [], field = '', inQuotes = false;
+  for(let i=0;i<text.length;i++){
+    const c = text[i];
+    if(inQuotes){
+      if(c === '"'){
+        if(text[i+1] === '"'){ field += '"'; i++; }
+        else inQuotes = false;
+      } else field += c;
+    } else {
+      if(c === '"') inQuotes = true;
+      else if(c === ','){ row.push(field); field=''; }
+      else if(c === '\n' || c === '\r'){
+        if(c === '\r' && text[i+1] === '\n') i++;
+        row.push(field); field='';
+        if(row.length > 1 || row[0] !== ''){ rows.push(row); }
+        row = [];
+      } else field += c;
+    }
+  }
+  if(field !== '' || row.length){ row.push(field); rows.push(row); }
+  return rows;
+}
+
+function toNumber(str){
+  if(str === undefined || str === null) return null;
+  str = String(str).trim();
+  if(str === '') return null;
+  str = str.replace(/\./g,'').replace(',', '.');
+  const n = parseFloat(str);
+  return isNaN(n) ? null : n;
+}
+
+function fmtBRL(n){
+  return n.toLocaleString('pt-BR', {style:'currency', currency:'BRL', maximumFractionDigits:0});
+}
+
+function parseDateBR(str){
+  const [d,m,y] = str.split('/').map(Number);
+  return new Date(y, m-1, d);
+}
+
+async function load(){
+  try{
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 12000);
+    const res = await fetch(CSV_URL, { signal: controller.signal });
+    clearTimeout(timeoutId);
+    if(!res.ok) throw new Error('status ' + res.status);
+    const text = await res.text();
+    if(text.trim().startsWith('<')) throw new Error('planilha não está pública');
+    const rows = parseCSV(text).filter(r => r.some(c => c.trim() !== ''));
+    const header = rows[0];
+    const bankNames = header.slice(1).map(h => h.trim()).filter(h => h !== '');
+    const dataRows = rows.slice(1).filter(r => r[0] && r[0].trim() !== '');
+
+    const dates = dataRows.map(r => r[0].trim());
+    const series = bankNames.map((name, idx) => ({
+      name,
+      values: dataRows.map(r => toNumber(r[idx+1]))
+    }));
+
+    const totals = dataRows.map((r, ri) => {
+      let sum = 0, any = false;
+      series.forEach(s => { if(s.values[ri] !== null){ sum += s.values[ri]; any = true; } });
+      return any ? sum : null;
+    });
+
+    renderDashboard(dates, series, totals);
+    document.getElementById('status').style.display = 'none';
+    document.getElementById('app').style.display = 'block';
+    document.getElementById('updated').textContent = 'atualizado ' + new Date().toLocaleString('pt-BR');
+  }catch(err){
+    console.error('Erro ao carregar planilha:', err);
+    const st = document.getElementById('status');
+    st.className = 'error';
+    const isTimeout = err.name === 'AbortError';
+    const msg = isTimeout
+      ? 'A busca demorou demais e foi cancelada (provável bloqueio de rede/CORS para pedidos em segundo plano a partir de um arquivo local).'
+      : 'Não consegui ler a planilha: ' + err.message;
+    st.innerHTML = msg + '<br>Verifique se ela está compartilhada como "Qualquer pessoa com o link pode visualizar".<br><a id="testLink2" href="#" target="_blank" style="color:var(--muted);font-size:12px">testar link direto dos dados</a>';
+    document.getElementById('testLink2').href = document.getElementById('testLink').href;
+  }
+}
+
+function renderDashboard(dates, series, totals){
+  const lastTotal = [...totals].reverse().find(v => v !== null);
+  const prevTotal = [...totals].reverse().filter(v => v !== null)[1];
+  document.getElementById('heroTotal').textContent = fmtBRL(lastTotal);
+  if(prevTotal !== undefined){
+    const diff = lastTotal - prevTotal;
+    const pct = (diff/prevTotal*100).toFixed(1);
+    const el = document.getElementById('heroDelta');
+    el.className = 'hero-delta ' + (diff >= 0 ? 'up' : 'down');
+    el.textContent = (diff >= 0 ? '↑ ' : '↓ ') + fmtBRL(Math.abs(diff)) + ' (' + pct + '%) desde o registro anterior';
+  }
+
+  // cards por banco
+  const cardsEl = document.getElementById('cards');
+  series.forEach(s => {
+    const vals = s.values.filter(v => v !== null);
+    if(!vals.length) return;
+    const last = vals[vals.length-1];
+    const prev = vals.length > 1 ? vals[vals.length-2] : null;
+    const card = document.createElement('div');
+    card.className = 'bank-card';
+    let deltaHtml = '';
+    if(prev !== null){
+      const d = last - prev;
+      deltaHtml = `<div class="delta ${d>=0?'up':'down'}">${d>=0?'↑':'↓'} ${fmtBRL(Math.abs(d))}</div>`;
+    }
+    card.innerHTML = `<div class="name">${s.name}</div><div class="value num">${fmtBRL(last)}</div>${deltaHtml}`;
+    cardsEl.appendChild(card);
+  });
+
+  // gráfico
+  const labels = dates.map(d => {
+    const dt = parseDateBR(d);
+    return dt.toLocaleDateString('pt-BR', {day:'2-digit', month:'short', year:'2-digit'});
+  });
+
+  const datasets = series.map((s, i) => ({
+    label: s.name,
+    data: s.values,
+    borderColor: PALETTE[i % PALETTE.length],
+    backgroundColor: PALETTE[i % PALETTE.length],
+    spanGaps: true,
+    tension: 0.25,
+    borderWidth: 2,
+    pointRadius: 2,
+    pointHoverRadius: 4,
+  }));
+
+  datasets.unshift({
+    label: 'Total',
+    data: totals,
+    borderColor: '#0F2422',
+    backgroundColor: '#0F2422',
+    borderWidth: 3,
+    borderDash: [4,3],
+    spanGaps: true,
+    tension: 0.25,
+    pointRadius: 2,
+    pointHoverRadius: 4,
+  });
+
+  const ctx = document.getElementById('chart').getContext('2d');
+  const chart = new Chart(ctx, {
+    type: 'line',
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => ctx.dataset.label + ': ' + (ctx.parsed.y !== null ? fmtBRL(ctx.parsed.y) : '—')
+          }
+        }
+      },
+      scales: {
+        x: { grid: { display: false }, ticks: { color: '#0F2422', maxRotation: 0, autoSkip: true, font:{size:10} } },
+        y: {
+          grid: { color: 'rgba(15,36,34,0.08)' },
+          ticks: { color: '#0F2422', font:{size:10}, callback: (v) => (v/1000) + 'k' }
+        }
+      }
+    }
+  });
+
+  // legenda customizada com toggle
+  const legendEl = document.getElementById('legend');
+  chart.data.datasets.forEach((ds, i) => {
+    const btn = document.createElement('button');
+    btn.innerHTML = `<span class="dot" style="background:${ds.borderColor}"></span>${ds.label}`;
+    btn.onclick = () => {
+      const meta = chart.getDatasetMeta(i);
+      meta.hidden = meta.hidden === null ? !chart.data.datasets[i].hidden : !meta.hidden;
+      btn.classList.toggle('off', meta.hidden);
+      chart.update();
+    };
+    legendEl.appendChild(btn);
+  });
+}
+
+load();
+</script>
+</body>
+</html>
